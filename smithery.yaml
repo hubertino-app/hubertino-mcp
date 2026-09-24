@@ -1,0 +1,33 @@
+# Smithery configuration for a local (stdio) MCP server.
+# Smithery now distributes local servers as MCP Bundles: build one with
+# `npm run bundle` and publish it with `smithery mcp publish` (see PUBLISHING.md).
+# This file describes the same launch command and settings for Smithery's
+# repository-based flow and for directories that read smithery.yaml.
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required:
+      - hubertinoApiKey
+    properties:
+      hubertinoApiKey:
+        type: string
+        description: Your Hubertino API key (hub_live_...), from https://hubertino.com/dashboard/settings
+      hubertinoApiUrl:
+        type: string
+        default: https://hubertino.com
+        description: Hubertino API base URL. Leave the default.
+  commandFunction: |-
+    (config) => ({
+      command: 'node',
+      args: ['dist/index.js'],
+      env: {
+        HUBERTINO_API_KEY: config.hubertinoApiKey,
+        HUBERTINO_API_URL: config.hubertinoApiUrl || 'https://hubertino.com'
+      }
+    })
+  exampleConfig:
+    hubertinoApiKey: hub_live_your_key_here
+build:
+  dockerfile: Dockerfile
+  dockerBuildPath: .
