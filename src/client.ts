@@ -155,9 +155,16 @@ export class HubertinoClient {
     return expectField(res, "scrapes");
   }
 
-  /** `GET /api/v1/scrapes/{id}` — one scrape with live status and progress. */
-  async getScrape(id: string, signal?: AbortSignal): Promise<Scrape> {
-    const res = await this.json<{ scrape: Scrape }>("GET", `/scrapes/${encodeId(id)}`, { signal });
+  /**
+   * `GET /api/v1/scrapes/{id}` — one scrape with live status and progress.
+   * `timeoutMs` can only shorten the client's default timeout (used by
+   * wait_for_scrape to stay inside its time budget).
+   */
+  async getScrape(id: string, signal?: AbortSignal, timeoutMs?: number): Promise<Scrape> {
+    const res = await this.json<{ scrape: Scrape }>("GET", `/scrapes/${encodeId(id)}`, {
+      signal,
+      timeoutMs: timeoutMs === undefined ? undefined : Math.max(1, Math.min(timeoutMs, this.timeoutMs)),
+    });
     return expectField(res, "scrape");
   }
 
@@ -211,7 +218,7 @@ export class HubertinoClient {
   private async json<T>(
     method: "GET" | "POST",
     path: string,
-    opts: { body?: unknown; signal?: AbortSignal } = {},
+    opts: { body?: unknown; signal?: AbortSignal; timeoutMs?: number } = {},
   ): Promise<T> {
     const { res, cleanup } = await this.request(method, path, { ...opts, accept: "application/json" });
     try {
@@ -274,8 +281,14 @@ export class HubertinoClient {
     // On success the timeout stays armed while the caller reads the body;
     // the caller releases it with cleanup().
     if (res.ok) return { res, cleanup };
-    cleanup();
-    const apiMessage = await readErrorMessage(res);
+    // Keep the timeout armed while reading the error body so a stalled body
+    // cannot hang the tool call.
+    let apiMessage: string | null;
+    try {
+      apiMessage = await readErrorMessage(res);
+    } finally {
+      cleanup();
+    }
     throw new HubertinoApiError(
       describeHttpError(res.status, apiMessage, this.apiUrl, res.headers.get("retry-after")),
       res.status,

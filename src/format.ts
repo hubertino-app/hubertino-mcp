@@ -36,6 +36,18 @@ export const COMPACT_OMIT = new Set([
 /** Longest string value kept in compact mode before it is cut with an ellipsis. */
 export const COMPACT_MAX_STRING = 300;
 
+/**
+ * Most characters of row JSON one get_results call returns (about 15k tokens).
+ * A compact row is ~700 characters, so an untrimmed 1,000-row page would be
+ * ~200k tokens: Claude Code rejects MCP output above 25k tokens by default
+ * and other clients would flood the context. Past this budget the page is cut
+ * short and nextOffset continues from the first row not returned.
+ */
+export const RESULTS_MAX_CHARS = 50_000;
+
+/** Categories/locations echoed in a scrape summary before the list is cut short. */
+export const SUMMARY_MAX_TERMS = 25;
+
 function isEmpty(value: unknown): boolean {
   return (
     value === null ||
@@ -86,8 +98,10 @@ export function summarizeScrape(scrape: Scrape, opts: { includeSearches?: boolea
     out.maxReviews = scrape.maxReviews;
     if (scrape.sourceJobId) out.sourceScrapeId = scrape.sourceJobId;
   } else {
-    out.categories = scrape.categories;
-    out.locations = scrape.locations;
+    // A zip-code-level scrape can have thousands of locations; echoing them on
+    // every get_scrape / wait_for_scrape poll would flood the context.
+    addTermList(out, "categories", scrape.categories);
+    addTermList(out, "locations", scrape.locations);
     out.maxResults = scrape.maxResults;
     out.country = scrape.country;
     out.enrichWebsite = scrape.enrichWebsite;
@@ -106,6 +120,16 @@ export function summarizeScrape(scrape: Scrape, opts: { includeSearches?: boolea
   else if (scrape.searches && scrape.searches.length > 0) out.searchesCount = scrape.searches.length;
   out.next = nextStep(scrape);
   return out;
+}
+
+function addTermList(out: Record<string, unknown>, key: "categories" | "locations", list: string[] | undefined): void {
+  if (!Array.isArray(list)) return;
+  if (list.length <= SUMMARY_MAX_TERMS) {
+    out[key] = list;
+    return;
+  }
+  out[key] = list.slice(0, SUMMARY_MAX_TERMS);
+  out[`${key}Total`] = list.length;
 }
 
 /** One-line list entry for list_scrapes. */
@@ -175,6 +199,8 @@ export interface ShapedResults {
   columns: string[];
   rows: Record<string, unknown>[];
   filteredOut?: number;
+  /** True when the page was cut short to stay within RESULTS_MAX_CHARS. */
+  trimmed?: boolean;
   unknownFields?: string[];
   note?: string;
 }
@@ -182,12 +208,38 @@ export interface ShapedResults {
 export function shapeResults(
   scrapeId: string,
   page: ResultsPage,
-  req: { offset: number; limit: number; fields?: string[]; detail: "compact" | "full"; withEmailOnly: boolean },
+  req: {
+    offset: number;
+    limit: number;
+    fields?: string[];
+    detail: "compact" | "full";
+    withEmailOnly: boolean;
+    /** Output budget in characters; defaults to RESULTS_MAX_CHARS. */
+    maxChars?: number;
+  },
 ): ShapedResults {
   const fetched = page.rows.length;
-  const kept = req.withEmailOnly ? page.rows.filter(hasEmail) : page.rows;
-  const rows = kept.map((r) => shapeRow(r, { fields: req.fields, detail: req.detail }));
-  const hasMore = page.hasMore ?? req.offset + fetched < page.count;
+  const maxChars = req.maxChars ?? RESULTS_MAX_CHARS;
+  const rows: Record<string, unknown>[] = [];
+  let consumed = 0; // fetched rows accounted for (returned or filtered out)
+  let chars = 0;
+  let trimmed = false;
+  for (const raw of page.rows) {
+    if (req.withEmailOnly && !hasEmail(raw)) {
+      consumed++;
+      continue;
+    }
+    const row = shapeRow(raw, { fields: req.fields, detail: req.detail });
+    const size = JSON.stringify(row).length + 1;
+    if (rows.length > 0 && chars + size > maxChars) {
+      trimmed = true;
+      break;
+    }
+    rows.push(row);
+    chars += size;
+    consumed++;
+  }
+  const hasMore = trimmed || (page.hasMore ?? req.offset + fetched < page.count);
 
   const columnSet = new Set<string>();
   for (const r of rows) for (const k of Object.keys(r)) columnSet.add(k);
@@ -201,18 +253,25 @@ export function shapeResults(
     limit: req.limit,
     returned: rows.length,
     hasMore,
-    nextOffset: hasMore ? req.offset + fetched : null,
+    nextOffset: hasMore ? req.offset + consumed : null,
     coverage: page.coverage,
     columns: [...columnSet],
     rows,
   };
-  if (req.withEmailOnly) out.filteredOut = fetched - kept.length;
+  if (req.withEmailOnly) out.filteredOut = consumed - rows.length;
+  if (trimmed) out.trimmed = true;
   if (req.fields?.length && page.columns?.length) {
     const known = new Set([...page.columns, "_status"]);
     const unknown = req.fields.filter((f) => !known.has(f));
     if (unknown.length) out.unknownFields = unknown;
   }
   const notes: string[] = [];
+  if (trimmed) {
+    notes.push(
+      `Cut short to fit one tool response: covered rows ${req.offset}-${req.offset + consumed - 1} of the ${fetched} fetched. ` +
+        `Continue with offset ${req.offset + consumed}, ask for fewer columns with fields, or use download_export for the whole list.`,
+    );
+  }
   if (page.partial) notes.push("The scrape is still running: more rows may appear and some rows are not fully enriched yet (_status).");
   if (req.withEmailOnly) notes.push("withEmailOnly filters inside this page; keep paging with nextOffset to scan the rest.");
   if (notes.length) out.note = notes.join(" ");

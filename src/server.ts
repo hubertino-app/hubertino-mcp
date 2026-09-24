@@ -15,9 +15,18 @@ import { VERSION } from "./version.js";
 
 export const SERVER_NAME = "hubertino-mcp";
 
-/** Most rows get_results returns per call (the API allows 5,000; model context is the real limit). */
+/** Most rows get_results asks the API for per call (the API allows 5,000; model context is the real limit). */
 export const RESULTS_TOOL_MAX_LIMIT = 1000;
-export const RESULTS_TOOL_DEFAULT_LIMIT = 100;
+/** ~50 compact rows is about 10k tokens; larger pages are also capped by RESULTS_MAX_CHARS. */
+export const RESULTS_TOOL_DEFAULT_LIMIT = 50;
+
+/**
+ * wait_for_scrape never starts a status check after its deadline, and each
+ * check may run at most this long past it. Default 50 s + 8 s stays under the
+ * ~60 s after which many MCP clients abort a tool call, even when the API is
+ * slow (it can take ~20 s to answer while the scraping engine is busy).
+ */
+export const WAIT_GRACE_MS = 8_000;
 
 export const SERVER_INSTRUCTIONS = `Hubertino scrapes Google Maps for business leads: name, category, phone, website, address, rating, reviews, social profiles and, when enrichWebsite is on, contact emails found on each business's own website.
 
@@ -36,6 +45,8 @@ export interface ServerDeps {
   /** Injected for tests; defaults to real timers. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   now?: () => number;
+  /** Injected for tests; defaults to WAIT_GRACE_MS. */
+  waitGraceMs?: number;
 }
 
 const scrapeId = z
@@ -49,6 +60,7 @@ export function createServer(deps: ServerDeps): McpServer {
   const { client } = deps;
   const sleep = deps.sleep ?? defaultSleep;
   const now = deps.now ?? Date.now;
+  const waitGraceMs = deps.waitGraceMs ?? WAIT_GRACE_MS;
 
   const server = new McpServer(
     {
@@ -83,7 +95,21 @@ export function createServer(deps: ServerDeps): McpServer {
       run(async () => {
         const pairsError = checkPairs(input);
         if (pairsError) return fail(pairsError);
-        const scrape = await client.createScrape(input, extra.signal);
+        let scrape: Scrape;
+        try {
+          scrape = await client.createScrape(input, extra.signal);
+        } catch (err) {
+          // A timeout, dropped connection or gateway 5xx after the request was
+          // sent does not tell us whether the scrape was created. A blind retry
+          // could run (and charge for) the same scrape twice.
+          if (err instanceof HubertinoApiError && err.retryable && !/no credits were used/i.test(err.apiMessage ?? "")) {
+            return fail(
+              `${err.message} The scrape may still have been created. Before starting it again, call list_scrapes and ` +
+                `look for a new scrape with these categories and locations, so it is not run and charged twice.`,
+            );
+          }
+          throw err;
+        }
         return ok({
           ...summarizeScrape(scrape),
           searchCount: input.categories.length * input.locations.length,
@@ -151,7 +177,9 @@ export function createServer(deps: ServerDeps): McpServer {
         let scrape: Scrape | undefined;
         for (;;) {
           try {
-            scrape = await client.getScrape(id, extra.signal);
+            // Bound each check by the remaining budget so a slow API cannot push
+            // the tool call past deadline + grace.
+            scrape = await client.getScrape(id, extra.signal, deadline + waitGraceMs - now());
           } catch (err) {
             // Ride out brief outages (network, timeouts, 5xx) until the deadline;
             // anything else (401, 404, ...) is final.
@@ -230,6 +258,7 @@ export function createServer(deps: ServerDeps): McpServer {
       title: "Get scrape results (lead rows)",
       description:
         "Read a scrape's rows as compact JSON, one page at a time. Works while the scrape is running (partial rows) and after it is done. " +
+        "Long pages are cut short to fit one tool response (trimmed: true); keep paging from nextOffset. " +
         "Each row is one business with only its populated fields, e.g. name, category, phone, email, website, address, city, state, " +
         "postal_code, country_code, rating, reviews, business_status, company_facebook/instagram/linkedin/x/youtube, location_link, " +
         "place_id and _status (found -> extracted -> enriched). Page with offset/nextOffset until hasMore is false. " +

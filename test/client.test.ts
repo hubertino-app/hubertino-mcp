@@ -163,6 +163,44 @@ describe("HubertinoClient error mapping", () => {
     await assert.rejects(client.listScrapes(), /did not answer within/);
   });
 
+  it("does not hang on an error response whose body stalls", async () => {
+    // Like real fetch: aborting the request signal errors the response body.
+    const fetch = async (_url: string, init?: RequestInit) =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"error":'));
+            init?.signal?.addEventListener("abort", () => controller.error(new Error("aborted")), { once: true });
+          },
+        }),
+        { status: 502, headers: { "content-type": "application/json" } },
+      );
+    const client = new HubertinoClient({ apiUrl: API_URL, apiKey: API_KEY, fetch, timeoutMs: 20 });
+    await assert.rejects(client.listScrapes(), (err: unknown) => {
+      assert.ok(err instanceof HubertinoApiError);
+      assert.equal(err.status, 502);
+      assert.equal(err.retryable, true);
+      return true;
+    });
+  });
+
+  it("getScrape can shorten, but not extend, the request timeout", async () => {
+    const seen: number[] = [];
+    const fetch = (_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        const t0 = Date.now();
+        init?.signal?.addEventListener("abort", () => {
+          seen.push(Date.now() - t0);
+          reject(new DOMException("aborted", "AbortError"));
+        });
+      });
+    const client = new HubertinoClient({ apiUrl: API_URL, apiKey: API_KEY, fetch, timeoutMs: 60 });
+    await assert.rejects(client.getScrape("abc", undefined, 10), /did not answer within/);
+    await assert.rejects(client.getScrape("abc", undefined, 60_000), /did not answer within/);
+    assert.ok(seen[0]! < 50, `shortened timeout fired after ${seen[0]}ms`);
+    assert.ok(seen[1]! < 1_000, `default timeout still applies (${seen[1]}ms)`);
+  });
+
   it("rejects a 2xx payload without the expected field", async () => {
     const { fetch } = mockFetch(json(200, { nope: true }));
     await assert.rejects(makeClient(fetch).getScrape("abc"), /missing "scrape"/);
