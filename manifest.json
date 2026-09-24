@@ -1,0 +1,80 @@
+{
+  "manifest_version": "0.3",
+  "name": "hubertino-mcp",
+  "display_name": "Hubertino: Google Maps leads",
+  "version": "0.1.0",
+  "description": "Scrape Google Maps business leads (phones, websites, emails, socials) with Hubertino.",
+  "long_description": "Build lead lists from Google Maps inside Claude and other MCP clients. Start a Hubertino scrape for any business type and location, wait for it, then read the rows (name, category, phone, email, website, address, rating, reviews, social profiles) or save them as CSV/XLSX. Uses your Hubertino API key and credits (1 credit = 1 business delivered). Docs: https://hubertino.com/docs",
+  "author": {
+    "name": "Hubertino MB",
+    "email": "doug@hubertino.com",
+    "url": "https://hubertino.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-github-username/hubertino-mcp"
+  },
+  "homepage": "https://hubertino.com",
+  "documentation": "https://hubertino.com/docs",
+  "support": "https://github.com/your-github-username/hubertino-mcp/issues",
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"],
+      "env": {
+        "HUBERTINO_API_KEY": "${user_config.api_key}",
+        "HUBERTINO_API_URL": "${user_config.api_url}",
+        "HUBERTINO_DOWNLOAD_DIR": "${user_config.download_dir}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "start_scrape", "description": "Start a Google Maps lead scrape for business categories in locations (uses credits)." },
+    { "name": "get_scrape", "description": "Get a scrape's status, progress, credits and field coverage." },
+    { "name": "wait_for_scrape", "description": "Wait until a scrape finishes (or a timeout passes) and return its status." },
+    { "name": "list_scrapes", "description": "List your recent scrapes, optionally filtered by status." },
+    { "name": "get_results", "description": "Read a scrape's lead rows as compact JSON, page by page, optionally only rows with an email." },
+    { "name": "download_export", "description": "Save a finished scrape as an XLSX or CSV file on this computer." }
+  ],
+  "prompts": [
+    {
+      "name": "build_lead_list",
+      "description": "Scrape a business type in an area, wait, and return the leads.",
+      "arguments": ["business", "area", "emailsOnly"],
+      "text": "Build me a lead list of \"${arguments.business}\" businesses in ${arguments.area} using Hubertino: start_scrape, wait_for_scrape, then get_results (emails only: ${arguments.emailsOnly})."
+    }
+  ],
+  "keywords": ["google maps", "leads", "lead generation", "scraper", "emails", "b2b"],
+  "license": "MIT",
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  },
+  "user_config": {
+    "api_key": {
+      "type": "string",
+      "title": "Hubertino API key",
+      "description": "Your hub_live_... key from https://hubertino.com/dashboard/settings",
+      "sensitive": true,
+      "required": true
+    },
+    "api_url": {
+      "type": "string",
+      "title": "API base URL",
+      "description": "Leave as is unless Hubertino support tells you otherwise.",
+      "default": "https://hubertino.com",
+      "required": false
+    },
+    "download_dir": {
+      "type": "directory",
+      "title": "Export folder",
+      "description": "Where download_export saves CSV/XLSX files.",
+      "default": "${HOME}/Downloads",
+      "required": false
+    }
+  }
+}

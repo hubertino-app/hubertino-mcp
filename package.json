@@ -1,0 +1,66 @@
+{
+  "name": "@hubertino/mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server for Hubertino: scrape Google Maps business leads (phones, websites, emails, socials) from Claude, Cursor and other MCP clients.",
+  "mcpName": "io.github.your-github-username/hubertino-mcp",
+  "license": "MIT",
+  "author": "Hubertino MB <doug@hubertino.com> (https://hubertino.com)",
+  "homepage": "https://hubertino.com/docs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-github-username/hubertino-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-github-username/hubertino-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "google-maps",
+    "google-maps-scraper",
+    "lead-generation",
+    "leads",
+    "b2b-leads",
+    "email-finder",
+    "scraper",
+    "claude",
+    "cursor",
+    "hubertino"
+  ],
+  "type": "module",
+  "bin": {
+    "hubertino-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "clean": "node -e \"for (const d of ['dist','.test-build','bundle']) require('node:fs').rmSync(d,{recursive:true,force:true})\"",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "test": "node -e \"require('node:fs').rmSync('.test-build',{recursive:true,force:true})\" && tsc -p tsconfig.test.json && node --test .test-build/test/*.test.js",
+    "smoke": "node scripts/smoke.mjs",
+    "bundle": "sh scripts/build-mcpb.sh",
+    "start": "node dist/index.js",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm test"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "typescript": "^7.0.2"
+  }
+}
