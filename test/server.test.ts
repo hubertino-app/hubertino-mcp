@@ -3,6 +3,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
+import type { FetchLike } from "../src/client.js";
 import { callTool, connect, json, makeScrape, mockFetch, API_URL } from "./helpers.js";
 
 const EXPECTED_TOOLS = [
@@ -170,6 +171,47 @@ describe("start_scrape", () => {
     }
   });
 
+  it("warns against a blind retry when a start request fails ambiguously", async () => {
+    const { fetch } = mockFetch(
+      () => new Response("<html>Gateway time-out</html>", { status: 524, headers: { "content-type": "text/html" } }),
+    );
+    const { client, close } = await connect(fetch);
+    try {
+      const { result, text } = await callTool(client, "start_scrape", {
+        categories: ["dentist"],
+        locations: ["Austin"],
+        maxResults: 10,
+      });
+      assert.equal(result.isError, true);
+      assert.match(text, /temporarily unavailable \(524\)/);
+      assert.match(text, /may still have been created/);
+      assert.match(text, /list_scrapes/);
+    } finally {
+      await close();
+    }
+  });
+
+  it("does not add the duplicate warning when the API says no credits were used", async () => {
+    const { fetch } = mockFetch(
+      json(503, {
+        error: "The scraping engine is temporarily unavailable. No credits were used — please try again in a minute.",
+      }),
+    );
+    const { client, close } = await connect(fetch);
+    try {
+      const { result, text } = await callTool(client, "start_scrape", {
+        categories: ["dentist"],
+        locations: ["Austin"],
+        maxResults: 10,
+      });
+      assert.equal(result.isError, true);
+      assert.match(text, /No credits were used/);
+      assert.doesNotMatch(text, /may still have been created/);
+    } finally {
+      await close();
+    }
+  });
+
   it("explains a missing API key without calling the API", async () => {
     const { fetch, calls } = mockFetch(json(201, { scrape: makeScrape() }));
     const { client, close } = await connect(fetch, { apiKey: null });
@@ -260,6 +302,64 @@ describe("get_scrape / wait_for_scrape / list_scrapes", () => {
       assert.equal(calls.length, 4); // t=0, 5, 10, 12
       assert.equal(data.status, "running");
       assert.match(data.waited, /Still running after 12s/);
+    } finally {
+      await close();
+    }
+  });
+
+  it("wait_for_scrape bounds a slow status check by its deadline", async () => {
+    let clock = 0;
+    let n = 0;
+    const fetch: FetchLike = (_url, init) => {
+      n++;
+      if (n === 1) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ scrape: makeScrape({ status: "running", resultCount: 12 }) }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      // The API hangs; only the client's timeout ends this request.
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      });
+    };
+    const { client, close } = await connect(fetch, {
+      now: () => clock,
+      sleep: async (ms) => {
+        clock += ms;
+      },
+      waitGraceMs: 50,
+    });
+    try {
+      const started = Date.now();
+      const { data, result } = await callTool(client, "wait_for_scrape", {
+        scrapeId: "abc",
+        timeoutSeconds: 5,
+        pollIntervalSeconds: 5,
+      });
+      assert.ok(Date.now() - started < 5_000, "the hanging check was cut off at deadline + grace");
+      assert.equal(result.isError, undefined);
+      assert.equal(n, 2);
+      assert.equal(data.status, "running", "reports the last good status");
+      assert.equal(data.resultCount, 12);
+      assert.match(data.waited, /Still running/);
+    } finally {
+      await close();
+    }
+  });
+
+  it("get_scrape shortens very long location lists", async () => {
+    const locations = Array.from({ length: 2000 }, (_, i) => `${78000 + i}, TX, United States`);
+    const { fetch } = mockFetch(json(200, { scrape: makeScrape({ status: "running", locations }) }));
+    const { client, close } = await connect(fetch);
+    try {
+      const { data } = await callTool(client, "get_scrape", { scrapeId: "abc" });
+      assert.equal(data.locations.length, 25);
+      assert.equal(data.locationsTotal, 2000);
+      assert.deepEqual(data.categories, ["dentist"]);
+      assert.equal(data.categoriesTotal, undefined);
     } finally {
       await close();
     }
@@ -418,12 +518,12 @@ describe("get_results", () => {
     }
   });
 
-  it("uses the tool defaults offset=0 limit=100", async () => {
-    const { fetch, calls } = mockFetch(json(200, page({ offset: 0, limit: 100, hasMore: false })));
+  it("uses the tool defaults offset=0 limit=50", async () => {
+    const { fetch, calls } = mockFetch(json(200, page({ offset: 0, limit: 50, hasMore: false })));
     const { client, close } = await connect(fetch);
     try {
       const { data } = await callTool(client, "get_results", { scrapeId: "abc" });
-      assert.equal(calls[0]!.url, `${API_URL}/api/v1/scrapes/abc/results?offset=0&limit=100`);
+      assert.equal(calls[0]!.url, `${API_URL}/api/v1/scrapes/abc/results?offset=0&limit=50`);
       assert.equal(data.nextOffset, null);
     } finally {
       await close();
@@ -460,6 +560,60 @@ describe("get_results", () => {
       assert.equal(data.rows[0].latitude, 30.2);
       assert.equal(data.rows[0].working_hours, '{"Monday":"9 AM–5 PM"}');
       assert.equal(data.rows[0].company_facebook, undefined, "empty strings are still dropped");
+    } finally {
+      await close();
+    }
+  });
+
+  it("cuts a page short at the output budget and continues from the first row not returned", async () => {
+    // ~1,300 characters per row: 1,000 of them would be ~1.3 MB of JSON.
+    const bigRows = Array.from({ length: 1000 }, (_, i) => ({
+      name: `Business ${i}`,
+      email: i % 2 === 0 ? `info${i}@example.com` : null,
+      location_link: `https://www.google.com/maps/place/${"x".repeat(1200)}/${i}`,
+      _status: "enriched",
+    }));
+    const { fetch } = mockFetch(json(200, page({ rows: bigRows, count: 5000, offset: 0, limit: 1000, hasMore: true })));
+    const { client, close } = await connect(fetch);
+    try {
+      const { text, data } = await callTool(client, "get_results", { scrapeId: "abc", limit: 1000, detail: "full" });
+      assert.ok(text.length < 60_000, `response is ${text.length} chars`);
+      assert.equal(data.trimmed, true);
+      assert.equal(data.hasMore, true);
+      assert.ok(data.returned > 10 && data.returned < 1000);
+      assert.equal(data.nextOffset, data.returned, "the next page starts right after the last returned row");
+      assert.equal(data.rows.at(-1).name, `Business ${data.returned - 1}`);
+      assert.match(data.note, /Continue with offset/);
+
+      // With a narrow projection the same page fits in full.
+      const narrow = await callTool(client, "get_results", { scrapeId: "abc", limit: 1000, fields: ["name", "email"] });
+      assert.equal(narrow.data.trimmed, undefined);
+      assert.equal(narrow.data.returned, 1000);
+      assert.equal(narrow.data.nextOffset, 1000);
+    } finally {
+      await close();
+    }
+  });
+
+  it("keeps withEmailOnly paging exact when a page is cut short", async () => {
+    const bigRows = Array.from({ length: 400 }, (_, i) => ({
+      name: `Business ${i}`,
+      email: i % 2 === 0 ? `info${i}@example.com` : null,
+      location_link: `https://www.google.com/maps/place/${"x".repeat(1200)}/${i}`,
+    }));
+    const { fetch } = mockFetch(json(200, page({ rows: bigRows, count: 400, offset: 0, limit: 400, hasMore: false })));
+    const { client, close } = await connect(fetch);
+    try {
+      const { data } = await callTool(client, "get_results", { scrapeId: "abc", limit: 400, detail: "full", withEmailOnly: true });
+      assert.equal(data.trimmed, true);
+      assert.equal(data.hasMore, true, "trimmed pages always have more");
+      const lastIndex = Number(String(data.rows.at(-1).name).split(" ")[1]);
+      // Rows between the last returned one and nextOffset were examined and
+      // filtered out; the row at nextOffset is the first one that did not fit.
+      assert.ok(data.nextOffset > lastIndex);
+      for (let i = lastIndex + 1; i < data.nextOffset; i++) assert.equal(bigRows[i]!.email, null);
+      assert.ok(bigRows[data.nextOffset]!.email);
+      assert.equal(data.filteredOut, data.nextOffset - data.returned);
     } finally {
       await close();
     }

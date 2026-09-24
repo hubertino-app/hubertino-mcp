@@ -164,7 +164,8 @@ download_export  {"scrapeId":"6f1c…","format":"csv"}
 - **1 credit = 1 business delivered.** When a scrape starts, Hubertino reserves `categories × locations × maxResults` credits, capped at your balance. When it finishes, you are charged only for rows actually delivered and the rest is refunded. If your balance is below the worst case, the scrape still runs but stops once the balance is used up. See [pricing](https://hubertino.com/pricing).
 - **Speed:** a scrape takes minutes. Rows can be read while it runs (`partial: true`). Each row's `_status` goes `found → extracted → enriched`.
 - **Rate limit:** 12 new scrapes per 5 minutes per account. Status, results and export calls are not rate limited.
-- **Page size:** `get_results` returns up to 1,000 rows per call (default 100) to protect the model's context window. Use `download_export` to get everything.
+- **Page size:** `get_results` reads up to 1,000 rows per call (default 50). To protect the model's context window, a page that would not fit in one tool response (about 50,000 characters) is cut short with `trimmed: true`; keep paging from `nextOffset`, ask for fewer columns with `fields`, or use `download_export` to get everything.
+- **Long scrapes:** `get_scrape` and `wait_for_scrape` echo at most 25 categories/locations and add `categoriesTotal` / `locationsTotal` for longer lists. `wait_for_scrape` never runs more than about 8 s past its `timeoutSeconds`, even when the API answers slowly.
 - **Export:** only available once status is `done`.
 
 Errors come back as tool errors with a next step, so the assistant can recover or tell you what to do:
@@ -180,6 +181,9 @@ Errors come back as tool errors with a next step, so the assistant can recover o
 | 410 | Results no longer stored | Start a new scrape |
 | 429 | Rate limited | Wait a few minutes before starting another scrape |
 | 5xx | Temporarily unavailable | Retry in a minute |
+| timeout / network | No answer from Hubertino | Retry shortly |
+
+If starting a scrape fails with a timeout, network error or 5xx, the scrape may still have been created. `start_scrape` then says to check `list_scrapes` before starting it again, so the same scrape is not run and charged twice.
 
 ## Security and privacy
 

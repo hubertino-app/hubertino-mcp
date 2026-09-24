@@ -83,6 +83,7 @@ export async function connect(
     downloadDir: extra.downloadDir ?? null,
     sleep: extra.sleep ?? (async () => {}),
     now: extra.now,
+    waitGraceMs: extra.waitGraceMs,
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "0.0.0" });
