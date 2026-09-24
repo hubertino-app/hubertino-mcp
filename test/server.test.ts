@@ -288,6 +288,47 @@ describe("get_scrape / wait_for_scrape / list_scrapes", () => {
     }
   });
 
+  it("wait_for_scrape rides out a transient 503 but stops on a 404", async () => {
+    const { fetch, calls } = mockFetch(
+      json(200, { scrape: makeScrape({ status: "running" }) }),
+      json(503, { error: "The scraping engine is temporarily unavailable." }),
+      json(200, { scrape: makeScrape({ status: "done", resultCount: 9 }) }),
+    );
+    const { client, close } = await connect(fetch);
+    try {
+      const { data, result } = await callTool(client, "wait_for_scrape", { scrapeId: "abc" });
+      assert.equal(result.isError, undefined);
+      assert.equal(calls.length, 3);
+      assert.equal(data.status, "done");
+    } finally {
+      await close();
+    }
+
+    const notFound = mockFetch(json(404, { error: "Job not found." }));
+    const second = await connect(notFound.fetch);
+    try {
+      const { result, text } = await callTool(second.client, "wait_for_scrape", { scrapeId: "nope" });
+      assert.equal(result.isError, true);
+      assert.match(text, /Not found \(404\)/);
+      assert.equal(notFound.calls.length, 1);
+    } finally {
+      await second.close();
+    }
+  });
+
+  it("wait_for_scrape does not retry a missing API key", async () => {
+    const { fetch, calls } = mockFetch(json(200, { scrape: makeScrape() }));
+    const { client, close } = await connect(fetch, { apiKey: null });
+    try {
+      const { result, text } = await callTool(client, "wait_for_scrape", { scrapeId: "abc" });
+      assert.equal(result.isError, true);
+      assert.match(text, /HUBERTINO_API_KEY is not set/);
+      assert.equal(calls.length, 0);
+    } finally {
+      await close();
+    }
+  });
+
   it("list_scrapes filters by status and limits the list", async () => {
     const scrapes = [
       makeScrape({ id: "a", status: "done", resultCount: 10 }),

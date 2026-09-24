@@ -96,6 +96,8 @@ export class HubertinoApiError extends Error {
     readonly status: number,
     /** The API's own `error` string, when it sent one. */
     readonly apiMessage: string | null = null,
+    /** True for failures worth retrying shortly: network errors, timeouts, 5xx. */
+    readonly retryable = false,
   ) {
     super(message);
     this.name = "HubertinoApiError";
@@ -262,10 +264,12 @@ export class HubertinoClient {
         throw new HubertinoApiError(
           `Hubertino did not answer within ${Math.round((opts.timeoutMs ?? this.timeoutMs) / 1000)}s (${method} /api/v1${stripQuery(path)}). Retry in a moment.`,
           0,
+          null,
+          true,
         );
       }
       const reason = err instanceof Error ? (err.cause instanceof Error ? err.cause.message : err.message) : String(err);
-      throw new HubertinoApiError(`Could not reach Hubertino at ${this.apiUrl}: ${reason}`, 0);
+      throw new HubertinoApiError(`Could not reach Hubertino at ${this.apiUrl}: ${reason}`, 0, null, true);
     }
     // On success the timeout stays armed while the caller reads the body;
     // the caller releases it with cleanup().
@@ -276,6 +280,7 @@ export class HubertinoClient {
       describeHttpError(res.status, apiMessage, this.apiUrl, res.headers.get("retry-after")),
       res.status,
       apiMessage,
+      res.status >= 500,
     );
   }
 }

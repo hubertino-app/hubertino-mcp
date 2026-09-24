@@ -148,9 +148,22 @@ export function createServer(deps: ServerDeps): McpServer {
         const deadline = now() + timeoutSeconds * 1000;
         const progressToken = extra._meta?.progressToken;
         let lastProgress = -1;
-        let scrape: Scrape;
+        let scrape: Scrape | undefined;
         for (;;) {
-          scrape = await client.getScrape(id, extra.signal);
+          try {
+            scrape = await client.getScrape(id, extra.signal);
+          } catch (err) {
+            // Ride out brief outages (network, timeouts, 5xx) until the deadline;
+            // anything else (401, 404, ...) is final.
+            const transient = err instanceof HubertinoApiError && err.retryable;
+            const remaining = deadline - now();
+            if (!transient || remaining <= 0 || extra.signal.aborted) {
+              if (scrape && transient) break; // report the last good status instead
+              throw err;
+            }
+            await sleep(Math.min(pollIntervalSeconds * 1000, remaining), extra.signal);
+            continue;
+          }
           if (progressToken !== undefined) {
             const percent = isTerminal(scrape.status)
               ? 100
@@ -172,6 +185,7 @@ export function createServer(deps: ServerDeps): McpServer {
           await sleep(Math.min(pollIntervalSeconds * 1000, remaining), extra.signal);
           if (extra.signal.aborted) break;
         }
+        if (!scrape) return fail("Could not read the scrape status. Try get_scrape.");
         const summary = summarizeScrape(scrape);
         if (!isTerminal(scrape.status)) {
           summary.waited = `Still ${scrape.status} after ${timeoutSeconds}s. Call wait_for_scrape again to keep waiting.`;

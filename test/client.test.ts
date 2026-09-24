@@ -125,6 +125,7 @@ describe("HubertinoClient error mapping", () => {
         assert.equal(err.apiMessage, apiMessage);
         assert.match(err.message, pattern);
         assert.ok(!err.message.includes(API_KEY), "never echoes the API key");
+        assert.equal(err.retryable, status >= 500, "only 5xx is retryable");
         return true;
       });
     });
