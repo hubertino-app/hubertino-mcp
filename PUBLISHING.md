@@ -77,6 +77,7 @@ Commit the change on `main`.
    ```bash
    mcp-publisher login github      # device flow: open github.com/login/device and enter the code
    ```
+   With the `io.github.hubertino-app` namespace this login returns 403 on publish even for an org Owner with public membership (registry issues #1537 and #1649). Use the **Publish to MCP Registry** workflow instead (Actions tab → Run workflow): it logs in with GitHub OIDC from this repo and publishes `server.json`. Step 3 below is then only needed for option B; step 4 applies either way.
    Option B (domain). macOS's built-in LibreSSL can't do Ed25519, so use OpenSSL 3 (`brew install openssl@3`, then `/opt/homebrew/opt/openssl@3/bin/openssl`):
    ```bash
    OPENSSL=/opt/homebrew/opt/openssl@3/bin/openssl

@@ -1,0 +1,25 @@
+name: Publish to MCP Registry
+
+# Run by hand (Actions -> Publish to MCP Registry -> Run workflow) after the
+# matching version is on npm. `mcp-publisher login github` from a laptop can't
+# publish under the hubertino-app org namespace (registry issues #1537 and
+# #1649); GitHub OIDC from this repo can.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+      - name: Log in with GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+      - name: Publish server.json
+        run: ./mcp-publisher publish
