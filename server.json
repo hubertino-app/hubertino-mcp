@@ -1,11 +1,11 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.your-github-username/hubertino-mcp",
+  "name": "io.github.hubertino-app/hubertino-mcp",
   "title": "Hubertino: Google Maps leads",
   "description": "Scrape Google Maps business leads (phones, websites, emails, socials) with Hubertino.",
   "websiteUrl": "https://hubertino.com/docs",
   "repository": {
-    "url": "https://github.com/your-github-username/hubertino-mcp",
+    "url": "https://github.com/hubertino-app/hubertino-mcp",
     "source": "github"
   },
   "version": "0.1.0",

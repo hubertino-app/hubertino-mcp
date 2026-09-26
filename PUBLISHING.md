@@ -20,13 +20,7 @@ The official MCP Registry ties a server name to a proven identity:
 | **A. GitHub** (default in this repo) | `io.github.<owner>/hubertino-mcp` | `mcp-publisher login github`. `<owner>` is your GitHub username, or an org where you are an **Owner**. |
 | **B. Domain** (brand-owned, recommended long term) | `com.hubertino/mcp-server` | `mcp-publisher login dns`, using a TXT record on the `hubertino.com` apex (DNS is managed in Cloudflare). |
 
-**TODO:** the repo currently uses the placeholder `your-github-username`. It appears in `package.json` (`mcpName`, `repository`, `bugs`), `server.json` (`name`, `repository.url`), `manifest.json` (`repository`, `support`), `glama.json` (`maintainers`) and `README.md` (clone URL). Replace it everywhere at once (macOS `sed`):
-
-```bash
-OWNER=your-real-github-owner      # e.g. the GitHub org or user that will own the repo
-grep -rl your-github-username --exclude-dir=node_modules --exclude-dir=.git . \
-  | xargs sed -i '' "s/your-github-username/${OWNER}/g"
-```
+**Done (2026-09-26):** option A is wired in. The placeholders are replaced with the GitHub org `hubertino-app`, so the server name is `io.github.hubertino-app/hubertino-mcp`. `glama.json` lists the user account `hubertino-com` instead, because Glama listings are claimed by a GitHub user, not an org.
 
 With option B, also set `"mcpName": "com.hubertino/mcp-server"` in `package.json` and `"name": "com.hubertino/mcp-server"` in `server.json`. Keep the GitHub URLs, because they still point at the source.
 
@@ -42,10 +36,10 @@ Commit the change on `main`.
 
 ## 1. GitHub repository
 
-1. Create a **public** repo `<owner>/hubertino-mcp` on GitHub. Leave it empty: no README or license.
+1. Create a **public** repo `hubertino-app/hubertino-mcp` on GitHub. Leave it empty: no README or license.
 2. Push:
    ```bash
-   git remote add origin https://github.com/<owner>/hubertino-mcp.git
+   git remote add origin https://github.com/hubertino-app/hubertino-mcp.git
    git push -u origin main
    ```
 3. Set the description to "MCP server for Hubertino: Google Maps business leads (phones, websites, emails, socials)", the website to `https://hubertino.com/docs`, and these topics: `mcp`, `mcp-server`, `model-context-protocol`, `google-maps`, `google-maps-scraper`, `lead-generation`.
@@ -109,7 +103,7 @@ Commit the change on `main`.
 Glama indexes GitHub repos, runs servers in Docker to inspect their tools, and gives them a score. The awesome-mcp-servers list shows that score badge next to each entry.
 
 1. Make sure `glama.json` lists your GitHub username in `maintainers` and is pushed. Its schema is `https://glama.ai/mcp/schemas/server.json`.
-2. Go to https://glama.ai/mcp/servers, choose **Add Server**, and submit `https://github.com/<owner>/hubertino-mcp`.
+2. Go to https://glama.ai/mcp/servers, choose **Add Server**, and submit `https://github.com/hubertino-app/hubertino-mcp`.
 3. Sign in to Glama with the GitHub account named in `glama.json` and **claim** the listing.
 4. In the listing's admin, keep the provided `Dockerfile`. The server starts and lists its tools without an API key, so inspection doesn't need a secret. Don't put a real key into Glama.
 5. Check that the listing shows all 6 tools and the `build_lead_list` prompt.
@@ -131,7 +125,7 @@ The same `hubertino-mcp.mcpb` can be attached to a GitHub Release. Claude Deskto
 ## 6. mcp.so
 
 1. Open https://mcp.so/submit.
-2. Type: **Server**. Repository URL: `https://github.com/<owner>/hubertino-mcp`. Name: `Hubertino`.
+2. Type: **Server**. Repository URL: `https://github.com/hubertino-app/hubertino-mcp`. Name: `Hubertino`.
 3. Submit to the free review queue. On 2026-09-24 the page also offered a paid ($39, one-time) option that skips review. It isn't needed.
 
 ## 7. awesome-mcp-servers (github.com/punkpeye/awesome-mcp-servers)
@@ -143,7 +137,7 @@ Do this **after** Glama has indexed the repo, because entries in the list carry 
    Legend: 📇 TypeScript, ☁️ talks to a cloud API, 🍎 🪟 🐧 macOS/Windows/Linux.
 
    ```markdown
-   - [<owner>/hubertino-mcp](https://github.com/<owner>/hubertino-mcp) [![<owner>/hubertino-mcp MCP server](https://glama.ai/mcp/servers/<owner>/hubertino-mcp/badges/score.svg)](https://glama.ai/mcp/servers/<owner>/hubertino-mcp) 📇 ☁️ 🍎 🪟 🐧 - Google Maps lead scraper via Hubertino: scrape business types × locations, track progress, read leads (phone, website, email from the business's own site, socials, rating) or save CSV/XLSX. Uses a Hubertino API key and credits. `npx -y @hubertino/mcp-server`
+   - [hubertino-app/hubertino-mcp](https://github.com/hubertino-app/hubertino-mcp) [![hubertino-app/hubertino-mcp MCP server](https://glama.ai/mcp/servers/hubertino-app/hubertino-mcp/badges/score.svg)](https://glama.ai/mcp/servers/hubertino-app/hubertino-mcp) 📇 ☁️ 🍎 🪟 🐧 - Google Maps lead scraper via Hubertino: scrape business types × locations, track progress, read leads (phone, website, email from the business's own site, socials, rating) or save CSV/XLSX. Uses a Hubertino API key and credits. `npx -y @hubertino/mcp-server`
    ```
 3. Open a PR titled `Add Hubertino (Google Maps leads) MCP server`, and in the body say that it wraps Hubertino's authenticated REST API.
 
@@ -159,7 +153,7 @@ Do this **after** Glama has indexed the repo, because entries in the list carry 
 `start_scrape` mirrors `scrapeInputSchema` from the app. The mirrored parts are the limits 1,000 / 10,000 / 500 / 2,000 / 120 characters, the 32 country codes and the `enrich*` defaults. Before each release, run:
 
 ```bash
-HUBERTINO_APP_DIR=/Users/md/Code/Hubertino/app npm test
+HUBERTINO_APP_DIR=../../app npm test
 ```
 
 The drift suite reads the app's `validation.ts`, the results route and the rate limiter, and fails if they changed.

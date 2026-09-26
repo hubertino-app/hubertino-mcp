@@ -2,16 +2,16 @@
   "name": "@hubertino/mcp-server",
   "version": "0.1.0",
   "description": "MCP server for Hubertino: scrape Google Maps business leads (phones, websites, emails, socials) from Claude, Cursor and other MCP clients.",
-  "mcpName": "io.github.your-github-username/hubertino-mcp",
+  "mcpName": "io.github.hubertino-app/hubertino-mcp",
   "license": "MIT",
   "author": "Hubertino MB <doug@hubertino.com> (https://hubertino.com)",
   "homepage": "https://hubertino.com/docs",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-github-username/hubertino-mcp.git"
+    "url": "git+https://github.com/hubertino-app/hubertino-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/your-github-username/hubertino-mcp/issues"
+    "url": "https://github.com/hubertino-app/hubertino-mcp/issues"
   },
   "keywords": [
     "mcp",

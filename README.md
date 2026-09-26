@@ -124,7 +124,7 @@ Add this to `.vscode/mcp.json`. VS Code prompts for the key and stores it secure
 Any MCP client that can launch a stdio server works. To run from a checkout:
 
 ```bash
-git clone https://github.com/your-github-username/hubertino-mcp.git
+git clone https://github.com/hubertino-app/hubertino-mcp.git
 cd hubertino-mcp && npm install && npm run build
 # then point your client at:  node /absolute/path/to/hubertino-mcp/dist/index.js
 ```

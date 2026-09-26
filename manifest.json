@@ -12,11 +12,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-github-username/hubertino-mcp"
+    "url": "https://github.com/hubertino-app/hubertino-mcp"
   },
   "homepage": "https://hubertino.com",
   "documentation": "https://hubertino.com/docs",
-  "support": "https://github.com/your-github-username/hubertino-mcp/issues",
+  "support": "https://github.com/hubertino-app/hubertino-mcp/issues",
   "server": {
     "type": "node",
     "entry_point": "dist/index.js",
